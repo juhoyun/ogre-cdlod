@@ -1,0 +1,129 @@
+vertex_program OgreGridMeshVP cg
+{
+    source OgreGridMesh.cg
+    entry_point main_vp
+    profiles vs_1_1 arbvp1
+
+    default_params
+    {
+        param_named_auto worldViewProjMat	worldviewproj_matrix
+        param_named_auto worldMat			world_matrix
+        param_named_auto camPos				camera_position
+    }
+
+}
+
+material OgreGridMeshMaterial
+{
+	technique
+	{
+		pass
+		{
+			lighting off
+			depth_write off
+
+			vertex_program_ref OgreGridMeshVP
+			{
+			}
+		}
+	}
+}
+
+vertex_program OgreGridRenderableVP cg
+{
+    source OgreGridRenderable.cg
+    entry_point main_vp
+    uses_vertex_texture_fetch true
+    profiles vs_3_0 arbvp1
+
+    default_params
+    {
+        param_named_auto worldViewProjMat	worldviewproj_matrix
+        param_named      mapDimensions		float4 0 0 0 0
+        param_named      gridDim			float4 0 0 0 0
+        param_named_auto cameraPos			float4 0 0 0 0
+        param_named_auto nodeInfo			custom 10
+        param_named_auto nodeCoeff			custom 12
+        param_named_auto morphConsts		custom 11
+        param_named      heightBlendRatio   float 1.0
+    }
+}
+
+fragment_program OgreGridRenderableFP cg
+{
+    source OgreGridRenderable.cg
+    entry_point main_fp
+    profiles ps_3_0 arbfp1
+
+    default_params
+    {
+    	param_named      gridDim			float4 0 0 0 0
+    	param_named      texelSize			float4 0 0 0 0
+    	param_named_auto lightDir			light_position 0
+    	param_named      heightBlendRatio   float 1.0
+    }
+}
+
+material OgreGridRenderableMaterial
+{
+	technique
+	{
+		pass
+		{
+			lighting off
+
+			vertex_program_ref OgreGridRenderableVP
+			{
+			}
+
+			fragment_program_ref OgreGridRenderableFP
+			{
+			}
+
+			texture_unit
+			{
+				// texture shall be set by the program
+				// heightmap for VP
+				binding_type vertex
+				tex_address_mode clamp
+			}
+			texture_unit
+			{
+				// texture shall be set by the program
+				// heightmap2 for VP
+				binding_type vertex
+				tex_address_mode clamp
+			}
+
+			texture_unit
+			{
+				// texture shall be set by the program
+				// heightmap for FP
+				tex_address_mode clamp
+			}
+			texture_unit
+			{
+				// texture shall be set by the program
+				// heightmap2 for FP
+				tex_address_mode clamp
+			}
+			//texture_unit
+			//{
+			//	texture normal2.jpg
+			//	tex_address_mode wrap
+			//}
+		}
+	}
+}
+
+material white
+{
+	technique
+	{
+		pass
+		{
+			lighting off
+			diffuse 1 1 1
+		}
+	}
+}

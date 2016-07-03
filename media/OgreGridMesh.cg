@@ -1,0 +1,30 @@
+// morphs vertex xy from from high to low detailed mesh position
+// - inPos: normalized [0, 1] grid position of the source vertex
+// - morphK: morph value
+// - gridHalf: (gridDim-1)/2
+float4 morphVertex( float4 inPos, float morphLerpK)
+{
+	float _gridHalf = 2;
+	float2 fracPart = frac(inPos.xz * _gridHalf) / _gridHalf;
+	inPos.xz -= fracPart * morphLerpK;
+	return inPos;
+}
+
+void main_vp (
+	float4 pos :			POSITION,
+	float3 normal:			NORMAL,
+
+	out float4 oPosition : POSITION,
+
+	uniform float4x4		worldMat,
+	uniform float4x4		worldViewProjMat,
+	uniform float3			camPos
+)
+{
+	
+	float4 worldPos = mul(worldMat, pos);
+	float d = distance(camPos, worldPos);
+	float morphK = saturate((d-20)/40);
+	float4 morphedPos = morphVertex(pos, morphK);
+	oPosition = mul(worldViewProjMat, morphedPos);
+}

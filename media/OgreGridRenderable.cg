@@ -1,0 +1,154 @@
+float2 getWorldPos(float4 nodeInfo, float4 mapDimensions, float4 pos)
+{
+	return mapDimensions.xy + nodeInfo.xy * mapDimensions.zw + mapDimensions.zw * nodeInfo.z * pos.xz;
+}
+
+// morphs input vertex uv from high to low detailed mesh position
+float2 morphVertex(float2 gridDim, float2 inPos, float morphLerpK )
+{
+	float2 fracPart = frac( inPos * gridDim.x ) * gridDim.y;
+	return inPos - fracPart * morphLerpK;
+}
+
+float getHeight(float4 coeff, float2 heightInfo, float2 pos, sampler2D heightTex, sampler2D heightTex2, float ratio)
+{
+	float2 uv = coeff.xy + pos * coeff.zw;
+	//return heightInfo.y * tex2D(heightTex, uv).x + heightInfo.x;
+	float h1 = tex2D(heightTex, uv).x;
+	float h2 = tex2D(heightTex2, uv).x;
+	return heightInfo.y * lerp(h2, h1, ratio) + heightInfo.x;
+}
+
+struct VertexOutput
+{
+	float4 Position:	POSITION;
+	float4 Color:		COLOR;
+	float4 Coord:		TEXCOORD0;
+};
+
+VertexOutput main_vp (
+	float4 pos :			POSITION,		// range 0..1
+	float3 normal:			NORMAL,
+
+	uniform float4x4		worldViewProjMat,
+	uniform float3			cameraPos,
+	uniform float4			mapDimensions,	// xy: min X,Z, zw: unit grid size
+	uniform float4			gridDim,		// x: half grid y: 1/half grid, z: Min Y w: Size Y
+	// custom parameters
+	uniform float4			nodeInfo,		// xy: grid index, z: grid size
+	uniform float4			nodeCoeff,		// xy: starting offset in [0..1], zw: coeff
+	uniform float4			morphConsts,
+	uniform float 			heightBlendRatio,	// ratio for TEX0 vs TEX1
+
+	uniform sampler2D heightTex: TEXUNIT0,
+	uniform sampler2D heightTex2: TEXUNIT1
+)
+{
+	float4 worldPos = float4(0, 0, 0, 1);
+	worldPos.xz = getWorldPos(nodeInfo, mapDimensions, pos);
+	worldPos.y = getHeight(nodeCoeff, gridDim.zw, pos.xz, heightTex, heightTex2, heightBlendRatio);
+	float camDistance = distance(cameraPos, worldPos.xyz);
+	float morphLerpK  = 1.0f - clamp(morphConsts.z - camDistance * morphConsts.w, 0.0, 1.0 );
+	pos.xz = morphVertex(gridDim.xy, pos.xz, morphLerpK);
+	worldPos.xz = getWorldPos(nodeInfo, mapDimensions, pos);
+	worldPos.y = getHeight(nodeCoeff, gridDim.zw, pos.xz, heightTex, heightTex2, heightBlendRatio);
+
+	VertexOutput o;
+	o.Position = mul(worldViewProjMat, worldPos);
+	o.Coord.xy = pos.xz;
+	o.Coord.zw = nodeCoeff.xy + pos.xz * nodeCoeff.zw; // uv
+#if 1
+	o.Color = float4(1, 1, 1, 1);
+#else
+	if (nodeInfo.w < 1)
+		o.Color = float4(1, 0, 0, 1);
+	else if (nodeInfo.w < 2)
+		o.Color = float4(1, 1, 0, 1);
+	else if (nodeInfo.w < 3)
+		o.Color = float4(0, 1, 0, 1);
+	else if (nodeInfo.w < 4)
+		o.Color = float4(0, 1, 1, 1);
+	else if (nodeInfo.w < 5)
+		o.Color = float4(1, 0, 1, 1);
+	else
+		o.Color = float4(1, 1, 1, 1);
+#endif
+	return o;
+}
+
+//#define USE_DETAIL_TEXTURE
+
+#ifdef USE_DETAIL_TEXTURE
+float3 filterNormal(sampler2D hTex1, sampler2D hTex2, float ratio, sampler2D detailTex, float y, float2 uv, float4 texelSize, float2 heightInfo)
+#else
+float3 filterNormal(sampler2D hTex1, sampler2D hTex2, float ratio, float y, float2 uv, float4 texelSize, float2 heightInfo)
+#endif
+{
+    float2 h;
+    float h1 = tex2D(hTex1, uv + float2(texelSize.x, 0)).r;
+    float h2 = tex2D(hTex2, uv + float2(texelSize.x, 0)).r;
+    h[0] = heightInfo.y * lerp(h2, h1, ratio) + heightInfo.x;
+    h1 = tex2D(hTex1, uv + float2(0, texelSize.y)).r;
+    h2 = tex2D(hTex2, uv + float2(0, texelSize.y)).r;
+    h[1] = heightInfo.y * lerp(h2, h1, ratio) + heightInfo.x;
+
+    float3 n;
+#ifdef USE_DETAIL_TEXTURE
+    float2 detail = tex2D(detailTex, uv*200);
+    n.x = (y - h[0]) * texelSize.z + detail.x;
+    n.z = (y - h[1]) * texelSize.w + detail.y;
+#else
+    n.x = (y - h[0]) * texelSize.z;
+    n.z = (y - h[1]) * texelSize.w;
+#endif
+    n.y = 1;
+    
+    return normalize(n);
+}
+
+#ifdef USE_DETAIL_TEXTURE
+float4 getHeightAndNormal(float2 uv, float2 heightInfo, float4 texelSize, float2 pos, sampler2D heightTex, sampler2D heightTex2, float ratio, sampler2D detailTex)
+#else
+float4 getHeightAndNormal(float2 uv, float2 heightInfo, float4 texelSize, float2 pos, sampler2D heightTex, sampler2D heightTex2, float ratio)
+#endif
+{
+	float4 r;
+	float h1 = tex2D(heightTex, uv).x;
+	float h2 = tex2D(heightTex2, uv).x;
+	//r.w = heightInfo.y * tex2D(heightTex, uv).x + heightInfo.x;
+	r.w = heightInfo.y * lerp(h2, h1, ratio) + heightInfo.x;
+#ifdef USE_DETAIL_TEXTURE
+	r.xyz = filterNormal(heightTex, heightTex2, ratio, detailTex, r.w, uv, texelSize, heightInfo);
+#else
+	r.xyz = filterNormal(heightTex, heightTex2, ratio, r.w, uv, texelSize, heightInfo);
+#endif
+	return r;
+}
+
+void main_fp(
+	VertexOutput i,
+
+	out float4 color: COLOR,
+
+	uniform float4			gridDim,		// x: half grid y: 1/half grid, z: Min Y w: Size Y
+	uniform float4			texelSize,
+	uniform float3			lightDir,
+	uniform float 			heightBlendRatio,
+#ifdef USE_DETAIL_TEXTURE
+	uniform sampler2D heightTex: TEXUNIT2,
+	uniform sampler2D heightTex2: TEXUNIT3,
+	uniform sampler2D detailTex: TEXUNIT4
+#else
+	uniform sampler2D heightTex: TEXUNIT2,
+	uniform sampler2D heightTex2: TEXUNIT3
+#endif
+)
+{
+#ifdef USE_DETAIL_TEXTURE
+	float4 normal = getHeightAndNormal(i.Coord.zw, gridDim.zw, texelSize, i.Coord.xy, heightTex, heightTex2, heightBlendRatio, detailTex);
+#else
+	float4 normal = getHeightAndNormal(i.Coord.zw, gridDim.zw, texelSize, i.Coord.xy, heightTex, heightTex2, heightBlendRatio);
+#endif
+	color.rgb = i.Color.rgb * saturate(dot(normal.xyz, lightDir));
+	color.a = 1;
+}
